@@ -249,12 +249,15 @@
   }
   /* ---------- Phone layout (simple view) ---------- */
   .phone-only{display:none;}
+  .lbl-phone{display:none;}
   @media (max-width:640px){
     .phone-hide{display:none !important;}
     .phone-only{display:inline-flex;}
-    /* Header: just the brand + theme toggle */
-    header{padding:10px 14px;}
-    .sess-meta{gap:8px;}
+    /* Header: brand + compact title + theme toggle */
+    header{padding:10px 14px; flex-wrap:wrap;}
+    .brand{font-size:17px;}
+    .sess-meta{gap:8px; width:100%; margin-left:0; margin-top:8px;}
+    .sess-meta input{flex:1; min-width:0; font-size:14px;}
     /* Record bar: stack the live-transcript toggle under the button row neatly */
     .recbar{gap:10px; padding:10px 14px;}
     .levels{display:none;}                 /* hide level meter to save width */
@@ -278,13 +281,32 @@
     /* Sheet opens to Questions only */
     .sheet{height:82vh; max-height:82vh;}
     .sheet-tabs{flex:1;}
+
+    /* ----- Discreet mode (phone): looks like a calm notes app ----- */
+    /* Neutral record control — no red, no pulsing dot. */
+    .rec-btn{background:rgba(255,255,255,.14); color:var(--on-dark); font-weight:600; font-size:14px; padding:9px 16px; border:1px solid rgba(255,255,255,.2);}
+    .rec-btn.armed{background:rgba(255,255,255,.22); color:var(--on-dark);}
+    .rec-btn .dot{width:8px; height:8px; background:var(--on-dark); opacity:.5;}
+    .rec-btn.armed .dot{animation:none; opacity:.9;}   /* no attention-grabbing pulse */
+    /* Hide the big timer; keep a tiny neutral one only when armed (optional) */
+    .timer{display:none;}
+    /* Make the recbar read like a quiet toolbar */
+    .recbar{background:var(--slate);}
+    /* Soften the transcript header label */
+    .tstrip-head{font-weight:600; letter-spacing:.3px;}
+    .lbl-full{display:none;}
+    .lbl-phone{display:inline;}
+    /* Make the gold "+ Question" button neutral so it doesn't stand out */
+    .tstrip-btn.gold{background:var(--surface); color:var(--text); border:1px solid var(--line);}
+    /* Live-transcript wording stays subtle */
+    .live-toggle{font-size:12px; color:var(--on-dark); opacity:.8;}
   }</style>
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v2.1</span></div>
+    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v2.3</span></div>
     <div class="sess-meta">
-      <input id="sessTitle" class="phone-hide" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
+      <input id="sessTitle" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
       <button class="libbtn" id="themeToggle" title="Toggle light/dark">☾</button>
       <button class="libbtn phone-hide" id="openLib">Library</button>
     </div>
@@ -295,7 +317,8 @@
     <div class="timer" id="timer">00:00:00</div>
     <div class="levels" id="levels"></div>
     <div class="live-toggle">
-      <span>Live transcript</span>
+      <span class="lbl-full">Live transcript</span>
+      <span class="lbl-phone">Notes</span>
       <div class="switch" id="liveSwitch"><div class="knob"></div></div>
     </div>
   </div>
@@ -305,7 +328,8 @@
   <!-- Compact live transcript strip (~1/5 height) -->
   <section class="tstrip" id="tstrip">
     <div class="tstrip-head">
-      <span>Live transcript</span>
+      <span class="lbl-full">Live transcript</span>
+      <span class="lbl-phone">Notes</span>
       <span class="badge" id="tCount" style="display:none">0</span>
       <button class="tstrip-btn gold" id="addQuestion">＋ Question</button>
       <button class="tstrip-btn phone-hide" id="openSheet">Notes &amp; summary</button>
@@ -417,7 +441,7 @@
     <button class="btn fbtn phone-hide" id="newSess">New session</button>
     <button class="btn fbtn" id="saveSess">Save</button>
     <button class="btn fbtn phone-hide" id="dlAudio">Download audio</button>
-    <button class="btn fbtn go" id="dlTranscript">Download transcript</button>
+    <button class="btn fbtn go" id="dlTranscript"><span class="lbl-full">Download transcript</span><span class="lbl-phone">Export notes</span></button>
     <button class="btn fbtn wipe phone-hide" id="wipeAll">Clear all data</button>
   </footer>
 
@@ -714,25 +738,47 @@
     };
     mediaRecorder.start(1000);
     recording=true; recStart=Date.now();
-    $("#recBtn").classList.add("armed"); $("#recLabel").textContent="Stop";
+    $("#recBtn").classList.add("armed"); $("#recLabel").textContent=(window.matchMedia && window.matchMedia("(max-width:640px)").matches)?"Stop notes":"Stop";
     timerInt=setInterval(tickTimer,250); tickTimer();
     startLevels(stream);
     if(liveOn) startRecog();
+    requestWakeLock();
     recordingBanner(true);
     autoSave("rec-start");
-    toast("Recording started");
+    if(!(window.matchMedia && window.matchMedia("(max-width:640px)").matches)) toast("Recording started");
   }
   function stopRec(){
     recording=false; elapsedBefore=curElapsed();
     clearInterval(timerInt);
     if(mediaRecorder&&mediaRecorder.state!=="inactive")mediaRecorder.stop();
     if(recog){try{recog.stop();}catch(e){}}
-    $("#recBtn").classList.remove("armed"); $("#recLabel").textContent="Record";
+    releaseWakeLock();
+    $("#recBtn").classList.remove("armed");
+    const isPhone = window.matchMedia && window.matchMedia("(max-width:640px)").matches;
+    $("#recLabel").textContent = isPhone ? "Notes" : "Record";
     renderTranscript("");
     hideBanner();
     autoSave("rec-stop");
-    toast("Recording stopped & saved in session");
+    toast(isPhone ? "Saved" : "Recording stopped & saved in session");
   }
+
+  /* ---------------- Screen wake lock (keep screen on while recording) ---------------- */
+  let wakeLock=null;
+  async function requestWakeLock(){
+    try{
+      if("wakeLock" in navigator){
+        wakeLock=await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener && wakeLock.addEventListener("release",()=>{ /* released by OS */ });
+      }
+    }catch(e){ /* not supported or denied — screen may auto-lock */ }
+  }
+  function releaseWakeLock(){
+    try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){}
+  }
+  // iOS releases the wake lock when the page is hidden; re-acquire on return if still recording.
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible" && recording && !wakeLock){ requestWakeLock(); }
+  });
 
   /* ---------------- API key (with auto-expiry) ---------------- */
   let sessionKey=""; // session-only key, never persisted
@@ -1085,7 +1131,14 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
 
   /* ---------------- Recording-active hint ---------------- */
   function recordingBanner(on){
-    if(on){ showBanner("good","Recording. Keep Session Scribe in the foreground and turn off Auto-Lock (Settings → Display & Brightness) so iOS doesn't pause the mic.",true); }
+    if(!on) return;
+    const isPhone = window.matchMedia && window.matchMedia("(max-width:640px)").matches;
+    if(isPhone){
+      // Discreet: no prominent banner. Quiet, neutral confirmation only.
+      toast("Started");
+    }else{
+      showBanner("good","Recording — the screen will stay awake. Keep Session Scribe open; locking the screen or switching apps will pause recording (a browser limitation on iPhone/iPad).",true);
+    }
   }
 
   /* ---------------- Clear all data (device wipe) ---------------- */
@@ -1135,6 +1188,10 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
   if(SR){ $("#liveSwitch").classList.add("on"); }
   else { liveOn=false; $("#liveSwitch").classList.remove("on"); }
   showImported();
+  // Discreet phone label: idle record button reads "Notes"
+  if(window.matchMedia && window.matchMedia("(max-width:640px)").matches){
+    $("#recLabel").textContent="Notes";
+  }
   tickTimer();
   checkRecovery();
 })();
