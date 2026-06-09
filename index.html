@@ -27,6 +27,7 @@
     background:var(--ink); color:var(--paper); flex:0 0 auto;
   }
   .brand{font-weight:800; letter-spacing:.3px; font-size:19px; display:flex; align-items:center; gap:9px;}
+  .brand .ver{font-weight:600; font-size:12px; color:rgba(247,244,236,.5); letter-spacing:.5px; margin-left:-3px;}
   .brand .nib{
     width:22px;height:22px;border-radius:4px 4px 4px 9px;
     background:linear-gradient(135deg,var(--amber),var(--amber-soft));
@@ -193,7 +194,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Session Scribe</div>
+    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v1.1</span></div>
     <div class="sess-meta">
       <input id="sessTitle" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
       <button class="libbtn" id="openLib">Library</button>
@@ -239,6 +240,9 @@
           <button class="tool" id="clearPad">Clear</button>
           <button class="tool" id="undoPad">Undo</button>
           <button class="tool" id="pencilOnly">✎ Pencil only</button>
+          <button class="tool" id="openNotes">📝 Apple Notes</button>
+          <button class="tool" id="importImg">＋ Import image</button>
+          <input type="file" id="imgFile" accept="image/*" style="display:none">
         </div>
       </div>
       <div class="canvas-wrap">
@@ -338,12 +342,21 @@
   let drawing=false, cur=null, activePointerId=null;
   let penEverSeen=false;          // once a real pencil is used, fingers stop drawing
   let pencilOnly=false;           // user-forced "Pencil only" toggle
+  let importedImg=null;           // optional imported handwriting image (e.g. from Apple Notes)
+  let importedImgData=null;       // dataURL for persistence/export
 
   function sizeCanvas(){
     const r=cv.getBoundingClientRect();
     if(r.width===0||r.height===0) return;
-    cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    dpr=Math.max(1,window.devicePixelRatio||1);
+    // Buffer = CSS size × dpr (crisp on retina). We then scale the context so all
+    // drawing happens in CSS-pixel coordinates that match getBoundingClientRect.
+    cv.width=Math.round(r.width*dpr);
+    cv.height=Math.round(r.height*dpr);
+    // Scale buffer→CSS using the ACTUAL ratio, not an assumed dpr, so positions
+    // stay accurate even if layout rounded the displayed size.
+    const sx=cv.width / r.width, sy=cv.height / r.height;
+    ctx.setTransform(sx,0,0,sy,0,0);
     redraw();
   }
 
@@ -393,18 +406,32 @@
   }
 
   function redraw(){
-    ctx.clearRect(0,0,cv.width,cv.height);
+    const r=cvRect||cv.getBoundingClientRect();
+    ctx.clearRect(0,0,r.width,r.height);
+    if(importedImg){
+      // Fit imported image to canvas width, preserving aspect, top-aligned.
+      const iw=importedImg.naturalWidth||importedImg.width, ih=importedImg.naturalHeight||importedImg.height;
+      if(iw && ih){
+        const scale=Math.min(r.width/iw, 1);
+        const w=iw*scale, h=ih*scale;
+        ctx.globalAlpha=1;
+        ctx.drawImage(importedImg, 0, 0, w, h);
+      }
+    }
     strokes.forEach(drawStroke);
     if(cur) drawStroke(cur);
-    $("#padHint").style.display=(strokes.length||cur)?"none":"block";
+    $("#padHint").style.display=(strokes.length||cur||importedImg)?"none":"block";
   }
 
   // rAF render loop: collect points during a stroke, paint once per frame for low latency.
   let needsRender=false;
   function requestRender(){ if(!needsRender){ needsRender=true; requestAnimationFrame(()=>{ needsRender=false; redraw(); }); } }
 
+  let cvRect=null;
+  function refreshRect(){ cvRect=cv.getBoundingClientRect(); }
+
   function ptFromEvent(e){
-    const r=cv.getBoundingClientRect();
+    const r=cvRect||cv.getBoundingClientRect();
     let p;
     if(e.pointerType==="pen"){ p = e.pressure>0 ? e.pressure : 0.4; }
     else { p=0.45; }
@@ -427,6 +454,7 @@
     if(e.pointerType==="pen") penEverSeen=true;
     if(!shouldDraw(e)) return;            // palm / finger rejected
     if(drawing) return;                   // ignore second simultaneous contact (palm)
+    refreshRect();                        // fresh geometry so ink lands under the tip
     drawing=true; activePointerId=e.pointerId;
     try{ cv.setPointerCapture(e.pointerId); }catch(_){}
     cur={tool,color,pts:[ptFromEvent(e)]};
@@ -455,7 +483,9 @@
   }
   cv.addEventListener("pointerup",endStroke);
   cv.addEventListener("pointercancel",endStroke);
-  window.addEventListener("resize",()=>{dpr=Math.max(1,window.devicePixelRatio||1);sizeCanvas();});
+  window.addEventListener("resize",()=>{ sizeCanvas(); refreshRect(); });
+  window.addEventListener("scroll",refreshRect,{passive:true});
+  document.addEventListener("scroll",refreshRect,{passive:true});
 
   // tool buttons
   $$(".tool[data-tool]").forEach(b=>b.addEventListener("click",()=>{
@@ -469,8 +499,11 @@
     if(tool==="erase"){tool="pen";$$(".tool[data-tool]").forEach(x=>x.classList.toggle("active",x.dataset.tool==="pen"));}
   }));
   $("#clearPad").addEventListener("click",()=>{
-    if(!strokes.length)return;
-    if(confirm("Clear all handwriting on this canvas?")){strokes=[];redraw(); if(typeof scheduleAutoSave==="function")scheduleAutoSave();}
+    if(!strokes.length && !importedImg)return;
+    if(confirm("Clear all handwriting and imported images on this canvas?")){
+      strokes=[]; importedImg=null; importedImgData=null; redraw();
+      if(typeof scheduleAutoSave==="function")scheduleAutoSave();
+    }
   });
   $("#undoPad").addEventListener("click",()=>{
     if(!strokes.length)return;
@@ -480,6 +513,35 @@
     pencilOnly=!pencilOnly;
     $("#pencilOnly").classList.toggle("active",pencilOnly);
     toast(pencilOnly?"Pencil only — fingers won't draw":"Finger drawing allowed");
+  });
+
+  // Open Apple Notes for native-quality handwriting (iOS URL scheme).
+  $("#openNotes").addEventListener("click",()=>{
+    toast("Opening Apple Notes — write there, then come back and tap Import image");
+    // mobilenotes:// launches the Notes app on iPad/iPhone.
+    setTimeout(()=>{ window.location.href="mobilenotes://"; },300);
+  });
+
+  // Import an image (e.g. a screenshot/export of Apple Notes handwriting) onto the canvas.
+  $("#importImg").addEventListener("click",()=>$("#imgFile").click());
+  $("#imgFile").addEventListener("change",e=>{
+    const f=e.target.files && e.target.files[0];
+    if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        importedImg=img; importedImgData=rd.result;
+        redraw();
+        if(typeof scheduleAutoSave==="function")scheduleAutoSave();
+        toast("Image imported — included when you download");
+      };
+      img.onerror=()=>toast("Couldn't load that image");
+      img.src=rd.result;
+    };
+    rd.onerror=()=>toast("Couldn't read that file");
+    rd.readAsDataURL(f);
+    e.target.value=""; // allow re-importing same file
   });
 
   /* ---------------- Sheet (notes + summary) ---------------- */
@@ -772,6 +834,7 @@
     $("#sessTitle").value=s.title||"";
     $("#typed").value=s.typed||"";
     transcript=s.transcript||[]; strokes=s.strokes||[];
+    importedImg=null; importedImgData=null;
     elapsedBefore=s.length||0; tickTimer();
     renderTranscript(""); redraw();
     $("#summaryOut").innerHTML=s.summaryHTML||$("#summaryOut").innerHTML;
@@ -810,7 +873,7 @@
     if(!confirm("Start a fresh session? Save the current one first if you want to keep it."))return;
     currentId=null; currentCreated=new Date().toISOString();
     $("#sessTitle").value=""; $("#typed").value="";
-    transcript=[]; strokes=[]; elapsedBefore=0; audioBlob=null;audioURL=null;
+    transcript=[]; strokes=[]; importedImg=null; importedImgData=null; elapsedBefore=0; audioBlob=null;audioURL=null;
     saveSessions(loadSessions().filter(s=>s.id!=="autosave_current"));
     hideBanner();
     $("#summaryOut").innerHTML="<div class='empty'><b>No summary yet.</b><br>Capture notes, then generate.</div>";
@@ -836,7 +899,7 @@
     const sumDiv=document.createElement("div"); sumDiv.innerHTML=$("#summaryOut").innerHTML;
     let sumText=sumDiv.innerText.trim();
     if(sumText.indexOf("No summary yet")===0) sumText="";
-    const hasInk=strokes.length>0;
+    const hasInk=strokes.length>0 || !!importedImg;
 
     if(!typed && !tr && !sumText && !hasInk){ toast("Nothing to export yet"); return; }
 
@@ -989,7 +1052,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
     // reset in-memory state
     currentId=null; currentCreated=new Date().toISOString();
     $("#sessTitle").value=""; $("#typed").value=""; $("#apiKey").value="";
-    transcript=[]; strokes=[]; elapsedBefore=0; audioBlob=null; audioURL=null;
+    transcript=[]; strokes=[]; importedImg=null; importedImgData=null; elapsedBefore=0; audioBlob=null; audioURL=null;
     $("#summaryOut").innerHTML="<div class='empty'><b>No summary yet.</b><br>Capture notes, then generate.</div>";
     tickTimer(); renderTranscript(""); redraw(); updateKeyStatus(); hideBanner();
     toast("All data cleared from this device");
@@ -999,8 +1062,13 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
   // Live transcript defaults ON; reflect it in the switch (gracefully off if unsupported).
   if(SR){ $("#liveSwitch").classList.add("on"); }
   else { liveOn=false; $("#liveSwitch").classList.remove("on"); }
-  sizeCanvas();
-  setTimeout(sizeCanvas,200); // after layout settles
+  sizeCanvas(); refreshRect();
+  setTimeout(()=>{ sizeCanvas(); refreshRect(); },200);   // after layout settles
+  setTimeout(()=>{ sizeCanvas(); refreshRect(); },800);   // after Safari toolbar/address bar settles
+  window.addEventListener("orientationchange",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },300));
+  // When the notes/summary sheet closes, the canvas may have resized — re-measure.
+  $("#closeSheet").addEventListener("click",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },80));
+  $("#sheetScrim").addEventListener("click",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },80));
   tickTimer();
   checkRecovery();
 })();
