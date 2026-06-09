@@ -313,13 +313,55 @@
     .tstrip-btn.gold{background:var(--surface); color:var(--text); border:1px solid var(--line);}
     /* Live-transcript wording stays subtle */
     .live-toggle{font-size:12px; color:var(--on-dark); opacity:.8;}
-  }</style>
+  }
+
+  /* ---------- Simple view (manual toggle: same as phone) ---------- */
+  html[data-view="simple"] .phone-hide {display:none !important;}
+  html[data-view="simple"] .phone-only {display:inline-flex;}
+  html[data-view="simple"] header {padding:10px 14px; flex-wrap:wrap; position:relative;}
+  html[data-view="simple"] .brand {font-size:17px;}
+  html[data-view="simple"] .sess-meta {gap:8px; width:100%; margin-left:0; margin-top:8px;}
+  html[data-view="simple"] .sess-meta input {flex:1; min-width:0; font-size:14px;}
+  html[data-view="simple"] #newSessPhone {position:absolute; top:10px; right:14px; margin:0;}
+  html[data-view="simple"] .recbar {gap:10px; padding:10px 14px;}
+  html[data-view="simple"] .levels {display:none;}
+  html[data-view="simple"] .live-toggle {margin-left:auto;}
+  html[data-view="simple"] .timer {font-size:16px; min-width:74px;}
+  html[data-view="simple"] .tstrip {flex:1 1 auto; min-height:200px;}
+  html[data-view="simple"] .tstrip-head {flex-wrap:wrap;}
+  html[data-view="simple"] .tstrip-btn.gold {margin-left:auto;}
+  html[data-view="simple"] /* Notes panel: compact, html[data-view="simple"] Apple Notes only, html[data-view="simple"] full width */
+    main {max-height:20vh;}
+  html[data-view="simple"] .notes-launch {padding:10px 14px 16px;}
+  html[data-view="simple"] .applist {grid-template-columns:1fr; gap:8px;}
+  html[data-view="simple"] .appcard {justify-content:flex-start; padding:12px 14px;}
+  html[data-view="simple"] .appcard .ic {font-size:20px;}
+  html[data-view="simple"] .appcard .nm {font-size:15px;}
+  html[data-view="simple"] footer {padding:10px 14px; gap:10px;}
+  html[data-view="simple"] footer .btn {min-width:0;}
+  html[data-view="simple"] .sheet {height:82vh; max-height:82vh;}
+  html[data-view="simple"] .sheet-tabs {flex:1;}
+  html[data-view="simple"] /* Neutral record control — no red, html[data-view="simple"] no pulsing dot. */
+    .rec-btn {background:rgba(255,255,255,.14); color:var(--on-dark); font-weight:600; font-size:14px; padding:9px 16px; border:1px solid rgba(255,255,255,.2);}
+  html[data-view="simple"] .rec-btn.armed {background:rgba(255,255,255,.22); color:var(--on-dark);}
+  html[data-view="simple"] .rec-btn .dot {width:8px; height:8px; background:var(--on-dark); opacity:.5;}
+  html[data-view="simple"] .rec-btn.armed .dot {animation:none; opacity:.9;}
+  html[data-view="simple"] /* Hide the big timer; keep a tiny neutral one only when armed (optional) */
+    .timer {display:none;}
+  html[data-view="simple"] .recbar {background:var(--slate);}
+  html[data-view="simple"] .tstrip-head {font-weight:600; letter-spacing:.3px;}
+  html[data-view="simple"] .lbl-full {display:none;}
+  html[data-view="simple"] .lbl-phone {display:inline;}
+  html[data-view="simple"] .tstrip-btn.gold {background:var(--surface); color:var(--text); border:1px solid var(--line);}
+  html[data-view="simple"] .live-toggle {font-size:12px; color:var(--on-dark); opacity:.8;}
+</style>
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Glimpse<span class="ver">v1.0</span></div>
+    <div class="brand"><span class="nib"></span>Glimpse<span class="ver">v1.2</span></div>
     <div class="sess-meta">
       <input id="sessTitle" placeholder="Title">
+      <button class="libbtn" id="viewToggle" title="Toggle simple/full view">▢</button>
       <button class="libbtn" id="themeToggle" title="Toggle light/dark">☾</button>
       <button class="libbtn phone-hide" id="openLib">Library</button>
     </div>
@@ -491,6 +533,18 @@
   function now(){return new Date();}
   function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
 
+  // True when the discreet "simple" view is active — either a real phone screen,
+  // or the Simple/Full toggle is set to simple.
+  function isSimple(){
+    if(document.documentElement.getAttribute("data-view")==="simple") return true;
+    return !!(window.matchMedia && window.matchMedia("(max-width:640px)").matches);
+  }
+  // Keep the record button label consistent with the active view + recording state.
+  function syncRecLabel(){
+    if(recording){ $("#recLabel").textContent = isSimple() ? "Stop notes" : "Stop"; }
+    else { $("#recLabel").textContent = isSimple() ? "Notes" : "Record"; }
+  }
+
   // Require a session title before Save/Export. Prompts if blank; returns the title or null if cancelled.
   function ensureTitle(){
     let t=$("#sessTitle").value.trim();
@@ -623,10 +677,13 @@
     $("#sheetScrim").classList.add("open");
     $("#sheet").classList.add("open");
     if(view) selectTab(view);
+    // While recording in simple view, the Done button also stops recording.
+    $("#closeSheet").textContent = (recording && isSimple()) ? "Stop" : "Done";
   }
   function closeSheet(){
     $("#sheetScrim").classList.remove("open");
     $("#sheet").classList.remove("open");
+    $("#closeSheet").textContent="Done";
   }
   function selectTab(view){
     $$(".tab").forEach(x=>x.classList.toggle("active", x.dataset.view===view));
@@ -635,7 +692,12 @@
   }
   $("#openSheet").addEventListener("click",()=>openSheet());
   $("#openQuestionsPhone").addEventListener("click",()=>openSheet("questions"));
-  $("#closeSheet").addEventListener("click",closeSheet);
+  $("#closeSheet").addEventListener("click",()=>{
+    // In simple view, the record button is hidden behind this sheet while recording,
+    // so the sheet's Done button doubles as Stop: stopping also closes the sheet.
+    if(recording && isSimple()){ stopRec(); }
+    else { closeSheet(); }
+  });
   $("#sheetScrim").addEventListener("click",closeSheet);
   $$(".tab").forEach(t=>t.addEventListener("click",()=>selectTab(t.dataset.view)));
 
@@ -811,14 +873,16 @@
     };
     mediaRecorder.start(1000);
     recording=true; recStart=Date.now();
-    $("#recBtn").classList.add("armed"); $("#recLabel").textContent=(window.matchMedia && window.matchMedia("(max-width:640px)").matches)?"Stop notes":"Stop";
+    $("#recBtn").classList.add("armed"); syncRecLabel();
     timerInt=setInterval(tickTimer,250); tickTimer();
     startLevels(stream);
     if(liveOn) startRecog();
     requestWakeLock();
     recordingBanner(true);
     autoSave("rec-start");
-    if(!(window.matchMedia && window.matchMedia("(max-width:640px)").matches)) toast("Recording started");
+    if(!isSimple()) toast("Recording started");
+    // Simple/discreet view: cover the transcript by opening the Capture sheet on Questions.
+    if(isSimple()){ openSheet("questions"); }
   }
   function stopRec(){
     recording=false; elapsedBefore=curElapsed();
@@ -827,12 +891,13 @@
     if(recog){try{recog.stop();}catch(e){}}
     releaseWakeLock();
     $("#recBtn").classList.remove("armed");
-    const isPhone = window.matchMedia && window.matchMedia("(max-width:640px)").matches;
-    $("#recLabel").textContent = isPhone ? "Notes" : "Record";
+    syncRecLabel();
     renderTranscript("");
     hideBanner();
     autoSave("rec-stop");
-    toast(isPhone ? "Saved" : "Recording stopped & saved in session");
+    // Simple view: close the Capture sheet automatically when recording stops.
+    if(isSimple()){ closeSheet(); }
+    toast(isSimple() ? "Saved" : "Recording stopped & saved in session");
   }
 
   /* ---------------- Screen wake lock (keep screen on while recording) ---------------- */
@@ -1242,8 +1307,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
   /* ---------------- Recording-active hint ---------------- */
   function recordingBanner(on){
     if(!on) return;
-    const isPhone = window.matchMedia && window.matchMedia("(max-width:640px)").matches;
-    if(isPhone){
+    if(isSimple()){
       // Discreet: no prominent banner. Quiet, neutral confirmation only.
       toast("Started");
     }else{
@@ -1274,7 +1338,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
     toast("All data cleared from this device");
   });
 
-  /* ---------------- Theme toggle ---------------- */
+  /* ---------------- Theme toggle (default: dark) ---------------- */
   const LS_THEME="scribe.theme.v1";
   function applyTheme(t){
     if(t==="dark"){ document.documentElement.setAttribute("data-theme","dark"); $("#themeToggle").textContent="☀"; }
@@ -1283,7 +1347,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
   (function initTheme(){
     let t=null;
     try{ t=localStorage.getItem(LS_THEME); }catch(e){}
-    if(!t){ t=(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"; }
+    if(!t){ t="dark"; }                       // default to dark everywhere
     applyTheme(t);
   })();
   $("#themeToggle").addEventListener("click",()=>{
@@ -1293,15 +1357,33 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
     try{ localStorage.setItem(LS_THEME,next); }catch(e){}
   });
 
+  /* ---------------- View toggle: Simple vs Full (default: simple) ---------------- */
+  const LS_VIEW="glimpse.view.v1";
+  function applyView(v){
+    if(v==="full"){ document.documentElement.removeAttribute("data-view"); $("#viewToggle").textContent="▢"; $("#viewToggle").title="Switch to simple view"; }
+    else { document.documentElement.setAttribute("data-view","simple"); $("#viewToggle").textContent="▣"; $("#viewToggle").title="Switch to full view"; }
+  }
+  (function initView(){
+    let v=null;
+    try{ v=localStorage.getItem(LS_VIEW); }catch(e){}
+    if(!v){ v="simple"; }                      // default to simple everywhere
+    applyView(v);
+  })();
+  $("#viewToggle").addEventListener("click",()=>{
+    const simple=document.documentElement.getAttribute("data-view")==="simple";
+    const next=simple?"full":"simple";
+    applyView(next);
+    try{ localStorage.setItem(LS_VIEW,next); }catch(e){}
+    // Re-apply discreet record label appropriately for the active view.
+    syncRecLabel();
+  });
+
   /* ---------------- Boot ---------------- */
   // Live transcript defaults ON; reflect it in the switch (gracefully off if unsupported).
   if(SR){ $("#liveSwitch").classList.add("on"); }
   else { liveOn=false; $("#liveSwitch").classList.remove("on"); }
   showImported();
-  // Discreet phone label: idle record button reads "Notes"
-  if(window.matchMedia && window.matchMedia("(max-width:640px)").matches){
-    $("#recLabel").textContent="Notes";
-  }
+  syncRecLabel();   // set idle record label per active view (simple → "Notes")
   tickTimer();
   checkRecovery();
 })();
