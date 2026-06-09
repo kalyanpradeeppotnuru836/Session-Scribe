@@ -304,7 +304,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v2.3</span></div>
+    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v2.4</span></div>
     <div class="sess-meta">
       <input id="sessTitle" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
       <button class="libbtn" id="themeToggle" title="Toggle light/dark">☾</button>
@@ -466,6 +466,18 @@
   function fmt(sec){const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=Math.floor(sec%60);return pad2(h)+":"+pad2(m)+":"+pad2(s);}
   function now(){return new Date();}
   function esc(s){return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+  // Require a session title before Save/Export. Prompts if blank; returns the title or null if cancelled.
+  function ensureTitle(){
+    let t=$("#sessTitle").value.trim();
+    if(t) return t;
+    const entered=prompt("Please enter a session title before continuing:","");
+    if(entered===null) return null;        // user cancelled
+    t=entered.trim();
+    if(!t){ toast("A session title is required"); return null; }
+    $("#sessTitle").value=t;                // write it back so it's used everywhere
+    return t;
+  }
 
   /* ---------------- State ---------------- */
   let strokes=[];               // {tool,color,size,pts:[{x,y,p}]}
@@ -901,6 +913,7 @@
   }
   let currentCreated=new Date().toISOString();
   $("#saveSess").addEventListener("click",async()=>{
+    if(ensureTitle()===null) return;       // blank title — prompt shown, abort if cancelled
     const snap=await snapshot();
     // If this was only the autosave slot, give it a real id so it's a proper saved session.
     if(!currentId || currentId==="autosave_current"){ currentId="s_"+Date.now(); }
@@ -989,7 +1002,8 @@
   /* ---------------- Download transcript ---------------- */
   function pad2t(n){return String(n).padStart(2,"0");}
   $("#dlTranscript").addEventListener("click",()=>{
-    const title=$("#sessTitle").value.trim()||"Untitled session";
+    const title=ensureTitle();
+    if(title===null) return;                // blank title — prompt shown, abort if cancelled
     const typed=$("#typed").value.trim();
     const tr=transcript.map(l=>`[${fmt(l.t)}] ${l.text}`).join("\n");
     const sumDiv=document.createElement("div"); sumDiv.innerHTML=$("#summaryOut").innerHTML;
