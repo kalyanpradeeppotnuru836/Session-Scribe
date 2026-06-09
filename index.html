@@ -237,6 +237,8 @@
           <span class="swatch" data-color="#e0892b" style="background:#e0892b"></span>
           <span class="swatch" data-color="#c0392b" style="background:#c0392b"></span>
           <button class="tool" id="clearPad">Clear</button>
+          <button class="tool" id="undoPad">Undo</button>
+          <button class="tool" id="pencilOnly">✎ Pencil only</button>
         </div>
       </div>
       <div class="canvas-wrap">
@@ -329,85 +331,130 @@
   let audioCtx=null, analyser=null, levelRAF=null;
   let currentId=null;
 
-  /* ---------------- Canvas ---------------- */
+  /* ---------------- Canvas (smooth, pressure-aware, palm-rejecting) ---------------- */
   const cv=$("#pad"), ctx=cv.getContext("2d");
   let dpr=Math.max(1,window.devicePixelRatio||1);
   let tool="pen", color="#0d1b2a";
-  let drawing=false, cur=null;
+  let drawing=false, cur=null, activePointerId=null;
+  let penEverSeen=false;          // once a real pencil is used, fingers stop drawing
+  let pencilOnly=false;           // user-forced "Pencil only" toggle
 
   function sizeCanvas(){
     const r=cv.getBoundingClientRect();
+    if(r.width===0||r.height===0) return;
     cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
     redraw();
   }
-  function lineWidthFor(t,p){
-    if(t==="hl") return 16;
-    if(t==="erase") return 22;
-    return 1.1 + (p||0.5)*4.2;   // pressure-sensitive pen
+
+  // Base width per tool; pen width is later modulated by (smoothed) pressure.
+  function baseWidth(t){ if(t==="hl")return 18; if(t==="erase")return 24; return 3.0; }
+  function widthFromPressure(t,p){
+    if(t==="hl") return 18;
+    if(t==="erase") return 24;
+    // Map pressure 0..1 to a natural pen range; ink gets thicker with pressure.
+    return 1.0 + (p||0.4)*5.5;
   }
-  function strokeStyleFor(s){
-    if(s.tool==="hl"){ctx.globalAlpha=.28; return s.color;}
-    if(s.tool==="erase"){ctx.globalAlpha=1; return "#f7f4ec";}
-    ctx.globalAlpha=1; return s.color;
+  function applyStyle(t,c){
+    if(t==="hl"){ ctx.globalAlpha=.32; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=c; }
+    else if(t==="erase"){ ctx.globalAlpha=1; ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="rgba(0,0,0,1)"; }
+    else { ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=c; }
   }
+
+  // Draw a stroke as a smooth path using midpoint quadratic curves (Apple Notes-like).
   function drawStroke(s){
-    if(s.pts.length<1)return;
+    const pts=s.pts;
+    if(pts.length<1) return;
     ctx.lineCap="round"; ctx.lineJoin="round";
-    ctx.strokeStyle=strokeStyleFor(s);
-    for(let i=1;i<s.pts.length;i++){
-      const a=s.pts[i-1], b=s.pts[i];
+    applyStyle(s.tool, s.color);
+
+    if(pts.length<3){
+      // dot or tiny mark
       ctx.beginPath();
-      ctx.lineWidth=lineWidthFor(s.tool, (a.p+b.p)/2);
-      ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      ctx.lineWidth=widthFromPressure(s.tool, pts[0].p);
+      ctx.moveTo(pts[0].x,pts[0].y);
+      ctx.lineTo(pts[pts.length-1].x+0.01, pts[pts.length-1].y+0.01);
+      ctx.stroke();
+    } else {
+      // Variable width: draw short curve segments, each with width from the
+      // running (smoothed) pressure, so the line tapers naturally.
+      for(let i=1;i<pts.length-1;i++){
+        const p0=pts[i-1], p1=pts[i], p2=pts[i+1];
+        const mid1={x:(p0.x+p1.x)/2, y:(p0.y+p1.y)/2};
+        const mid2={x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
+        ctx.beginPath();
+        ctx.lineWidth=widthFromPressure(s.tool, p1.p);
+        ctx.moveTo(mid1.x,mid1.y);
+        ctx.quadraticCurveTo(p1.x,p1.y, mid2.x,mid2.y);
+        ctx.stroke();
+      }
     }
-    ctx.globalAlpha=1;
+    ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
+
   function redraw(){
     ctx.clearRect(0,0,cv.width,cv.height);
     strokes.forEach(drawStroke);
-    $("#padHint").style.display=strokes.length?"none":"block";
+    if(cur) drawStroke(cur);
+    $("#padHint").style.display=(strokes.length||cur)?"none":"block";
   }
+
+  // rAF render loop: collect points during a stroke, paint once per frame for low latency.
+  let needsRender=false;
+  function requestRender(){ if(!needsRender){ needsRender=true; requestAnimationFrame(()=>{ needsRender=false; redraw(); }); } }
+
   function ptFromEvent(e){
     const r=cv.getBoundingClientRect();
-    let p=0.5;
-    if(e.pointerType==="pen"){ p = e.pressure>0 ? e.pressure : 0.5; }
-    else if(e.pointerType==="touch"){ p=0.55; }
-    return {x:e.clientX-r.left, y:e.clientY-r.top, p};
+    let p;
+    if(e.pointerType==="pen"){ p = e.pressure>0 ? e.pressure : 0.4; }
+    else { p=0.45; }
+    // exponential smoothing of pressure for natural weight transitions
+    if(cur && cur.pts.length){ const prev=cur.pts[cur.pts.length-1].rp ?? p; p = prev*0.6 + p*0.4; }
+    return {x:e.clientX-r.left, y:e.clientY-r.top, p, rp:p};
   }
+
+  function shouldDraw(e){
+    // Pencil-only mode: only pen events ever draw.
+    if(pencilOnly) return e.pointerType==="pen";
+    // Otherwise: pen always draws; finger draws only until a pencil has been seen,
+    // then fingers are treated as palm and ignored.
+    if(e.pointerType==="pen") return true;
+    if(e.pointerType==="touch") return !penEverSeen;
+    return true; // mouse/trackpad on desktop
+  }
+
   cv.addEventListener("pointerdown",e=>{
-    // Ignore finger pans if a pen has been used (palm rejection-ish): allow finger draw too, but pen preferred.
-    if(e.pointerType==="touch" && cv._penSeen) return; // palm rejection once pencil detected
-    if(e.pointerType==="pen") cv._penSeen=true;
-    drawing=true; cv.setPointerCapture(e.pointerId);
+    if(e.pointerType==="pen") penEverSeen=true;
+    if(!shouldDraw(e)) return;            // palm / finger rejected
+    if(drawing) return;                   // ignore second simultaneous contact (palm)
+    drawing=true; activePointerId=e.pointerId;
+    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
     cur={tool,color,pts:[ptFromEvent(e)]};
     $("#padHint").style.display="none";
+    requestRender();
     e.preventDefault();
   },{passive:false});
+
   cv.addEventListener("pointermove",e=>{
-    if(!drawing||!cur)return;
-    const evts = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-    evts.forEach(ev=>cur.pts.push(ptFromEvent(ev)));
-    // incremental draw
-    const n=cur.pts.length;
-    ctx.lineCap="round"; ctx.lineJoin="round"; ctx.strokeStyle=strokeStyleFor(cur);
-    for(let i=Math.max(1,n-evts.length);i<n;i++){
-      const a=cur.pts[i-1],b=cur.pts[i];
-      ctx.beginPath(); ctx.lineWidth=lineWidthFor(cur.tool,(a.p+b.p)/2);
-      ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-    }
-    ctx.globalAlpha=1;
+    if(!drawing||!cur||e.pointerId!==activePointerId) return;
+    let evts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null);
+    if(!evts || !evts.length) evts=[e];
+    for(const ev of evts){ cur.pts.push(ptFromEvent(ev)); }
+    requestRender();
     e.preventDefault();
   },{passive:false});
+
   function endStroke(e){
-    if(!drawing||!cur)return;
-    drawing=false;
-    if(cur.pts.length>1) strokes.push(cur);
+    if(!drawing||!cur) return;
+    if(e && e.pointerId!==undefined && e.pointerId!==activePointerId) return;
+    drawing=false; activePointerId=null;
+    if(cur.pts.length>=1) strokes.push(cur);
     cur=null;
+    redraw();
+    if(typeof scheduleAutoSave==="function") scheduleAutoSave();
   }
   cv.addEventListener("pointerup",endStroke);
   cv.addEventListener("pointercancel",endStroke);
-  cv.addEventListener("pointerleave",endStroke);
   window.addEventListener("resize",()=>{dpr=Math.max(1,window.devicePixelRatio||1);sizeCanvas();});
 
   // tool buttons
@@ -423,7 +470,16 @@
   }));
   $("#clearPad").addEventListener("click",()=>{
     if(!strokes.length)return;
-    if(confirm("Clear all handwriting on this canvas?")){strokes=[];redraw();}
+    if(confirm("Clear all handwriting on this canvas?")){strokes=[];redraw(); if(typeof scheduleAutoSave==="function")scheduleAutoSave();}
+  });
+  $("#undoPad").addEventListener("click",()=>{
+    if(!strokes.length)return;
+    strokes.pop(); redraw(); if(typeof scheduleAutoSave==="function")scheduleAutoSave();
+  });
+  $("#pencilOnly").addEventListener("click",()=>{
+    pencilOnly=!pencilOnly;
+    $("#pencilOnly").classList.toggle("active",pencilOnly);
+    toast(pencilOnly?"Pencil only — fingers won't draw":"Finger drawing allowed");
   });
 
   /* ---------------- Sheet (notes + summary) ---------------- */
@@ -867,8 +923,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
     clearTimeout(autoSaveTimer);
     autoSaveTimer=setTimeout(()=>autoSave("periodic"),4000);
   }
-  // Trigger auto-save when the user writes, types, or transcript grows
-  ["pointerup","pointercancel"].forEach(ev=>cv.addEventListener(ev,scheduleAutoSave));
+  // Trigger auto-save when the user types (handwriting autosaves via endStroke)
   $("#typed").addEventListener("input",scheduleAutoSave);
 
   // Detect the page being backgrounded / locked — the real risk during a keynote.
