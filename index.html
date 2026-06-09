@@ -76,11 +76,11 @@
   .banner.good{background:#eaf5f3; color:#155753; border-bottom:1px solid var(--teal-soft);}
   .banner .x{margin-left:auto; background:none; border:none; font:inherit; font-weight:700; cursor:pointer; color:inherit; opacity:.6; font-size:18px; line-height:1;}
   /* ---------- Main split ---------- */
-  main{flex:1; display:flex; flex-direction:column; min-height:0;}
+  main{flex:0 0 auto; max-height:24vh; display:flex; flex-direction:column; min-height:0;}
   .pane{display:flex; flex-direction:column; min-width:0; min-height:0;}
   /* ---------- Compact transcript strip ---------- */
   .tstrip{
-    flex:0 0 20vh; min-height:96px; max-height:24vh; display:flex; flex-direction:column;
+    flex:1 1 auto; min-height:160px; display:flex; flex-direction:column;
     background:#fff; border-bottom:2px solid var(--line);
   }
   .tstrip-head{
@@ -107,14 +107,22 @@
   .tool.active{background:var(--ink); color:var(--paper); border-color:var(--ink);}
   .swatch{width:26px;height:26px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;}
   .swatch.sel{box-shadow:0 0 0 2px var(--ink);}
-  .ink-pane{flex:1;}
-  .canvas-wrap{flex:1; position:relative; overflow:hidden; background:
-    linear-gradient(var(--paper),var(--paper)),
-    repeating-linear-gradient(transparent,transparent 33px,rgba(31,111,107,.10) 34px);
-    background-blend-mode:multiply;}
-  #pad{position:absolute; inset:0; width:100%; height:100%; touch-action:none; display:block;}
-  .pad-hint{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:var(--muted);
-    font-size:15px; text-align:center; pointer-events:none; max-width:80%; line-height:1.5;}
+  .notes-pane{flex:1;}
+  .notes-body{flex:1; min-height:0; overflow-y:auto; background:var(--paper);}
+  .notes-launch{padding:12px 16px 18px; max-width:680px; margin:0 auto;}
+  .nl-lead{font-size:13px; line-height:1.5; color:var(--muted); margin:2px 0 12px;}
+  .applist{display:grid; grid-template-columns:repeat(4,1fr); gap:8px;}
+  .appcard{display:flex; flex-direction:row; align-items:center; justify-content:center; gap:7px; text-align:center;
+    border:1px solid var(--line); background:#fff; border-radius:10px; padding:9px 8px; cursor:pointer;
+    transition:transform .1s;}
+  .appcard:active{transform:scale(.97);}
+  .appcard .ic{font-size:18px; line-height:1; flex:0 0 auto;}
+  .appcard .nm{font-weight:700; font-size:14px; color:var(--ink);}
+  .appcard .ds{display:none;}
+  .nl-tip{font-size:12px; line-height:1.5; color:var(--muted); margin-top:12px;
+    background:#fff7ec; border:1px solid var(--amber-soft); padding:10px 12px; border-radius:9px;}
+  .notes-preview{padding:14px 16px;}
+  .notes-preview img{display:block; max-width:100%; border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow);}
   /* ---------- Slide-up sheet (notes + summary) ---------- */
   .sheet-scrim{position:fixed; inset:0; background:rgba(13,27,42,.4); display:none; z-index:55;}
   .sheet-scrim.open{display:block;}
@@ -194,7 +202,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v1.1</span></div>
+    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v1.5</span></div>
     <div class="sess-meta">
       <input id="sessTitle" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
       <button class="libbtn" id="openLib">Library</button>
@@ -225,29 +233,45 @@
   </section>
 
   <main>
-    <!-- Handwriting (main area) -->
-    <section class="pane ink-pane">
+    <!-- Notes via your preferred notes app -->
+    <section class="pane notes-pane">
       <div class="pane-head">
-        Handwriting &amp; sketches
+        Notes
         <div class="tools">
-          <button class="tool active" data-tool="pen">Pen</button>
-          <button class="tool" data-tool="hl">Highlight</button>
-          <button class="tool" data-tool="erase">Erase</button>
-          <span class="swatch sel" data-color="#0d1b2a" style="background:#0d1b2a"></span>
-          <span class="swatch" data-color="#1f6f6b" style="background:#1f6f6b"></span>
-          <span class="swatch" data-color="#e0892b" style="background:#e0892b"></span>
-          <span class="swatch" data-color="#c0392b" style="background:#c0392b"></span>
-          <button class="tool" id="clearPad">Clear</button>
-          <button class="tool" id="undoPad">Undo</button>
-          <button class="tool" id="pencilOnly">✎ Pencil only</button>
-          <button class="tool" id="openNotes">📝 Apple Notes</button>
-          <button class="tool" id="importImg">＋ Import image</button>
+          <button class="tool" id="importImg">＋ Add written page</button>
+          <button class="tool" id="clearImg">Remove</button>
           <input type="file" id="imgFile" accept="image/*" style="display:none">
         </div>
       </div>
-      <div class="canvas-wrap">
-        <canvas id="pad"></canvas>
-        <div class="pad-hint" id="padHint">Write with your Apple Pencil.<br>Pressure and tilt are captured.</div>
+      <div class="notes-body" id="notesBody">
+        <div class="notes-launch" id="notesLaunch">
+          <p class="nl-lead">Write by hand in the app you already use, then bring the page back here so it's saved and exported with your recording, transcript and notes.</p>
+          <div class="applist">
+            <button class="appcard" data-app="apple">
+              <span class="ic">📝</span>
+              <span class="nm">Apple Notes</span>
+              <span class="ds">Open the Notes app</span>
+            </button>
+            <button class="appcard" data-app="onenote">
+              <span class="ic">📘</span>
+              <span class="nm">OneNote</span>
+              <span class="ds">Open OneNote</span>
+            </button>
+            <button class="appcard" data-app="goodnotes">
+              <span class="ic">✍️</span>
+              <span class="nm">GoodNotes</span>
+              <span class="ds">Open GoodNotes</span>
+            </button>
+            <button class="appcard" data-app="freeform">
+              <span class="ic">🧩</span>
+              <span class="nm">Freeform</span>
+              <span class="ds">Open Freeform</span>
+            </button>
+          </div>
+        </div>
+        <div class="notes-preview" id="notesPreview" style="display:none">
+          <img id="notesImg" alt="Imported written page">
+        </div>
       </div>
     </section>
   </main>
@@ -335,194 +359,52 @@
   let audioCtx=null, analyser=null, levelRAF=null;
   let currentId=null;
 
-  /* ---------------- Canvas (smooth, pressure-aware, palm-rejecting) ---------------- */
-  const cv=$("#pad"), ctx=cv.getContext("2d");
-  let dpr=Math.max(1,window.devicePixelRatio||1);
-  let tool="pen", color="#0d1b2a";
-  let drawing=false, cur=null, activePointerId=null;
-  let penEverSeen=false;          // once a real pencil is used, fingers stop drawing
-  let pencilOnly=false;           // user-forced "Pencil only" toggle
-  let importedImg=null;           // optional imported handwriting image (e.g. from Apple Notes)
-  let importedImgData=null;       // dataURL for persistence/export
+  /* ---------------- Handwriting via notes apps ---------------- */
+  // No in-browser canvas. Users write in their preferred app, then attach the page
+  // back as an image so it's saved and exported with everything else.
+  let importedImg=null;        // <img> element of attached written page
+  let importedImgData=null;    // dataURL for export
 
-  function sizeCanvas(){
-    const r=cv.getBoundingClientRect();
-    if(r.width===0||r.height===0) return;
-    dpr=Math.max(1,window.devicePixelRatio||1);
-    // Buffer = CSS size × dpr (crisp on retina). We then scale the context so all
-    // drawing happens in CSS-pixel coordinates that match getBoundingClientRect.
-    cv.width=Math.round(r.width*dpr);
-    cv.height=Math.round(r.height*dpr);
-    // Scale buffer→CSS using the ACTUAL ratio, not an assumed dpr, so positions
-    // stay accurate even if layout rounded the displayed size.
-    const sx=cv.width / r.width, sy=cv.height / r.height;
-    ctx.setTransform(sx,0,0,sy,0,0);
-    redraw();
-  }
-
-  // Base width per tool; pen width is later modulated by (smoothed) pressure.
-  function baseWidth(t){ if(t==="hl")return 18; if(t==="erase")return 24; return 3.0; }
-  function widthFromPressure(t,p){
-    if(t==="hl") return 18;
-    if(t==="erase") return 24;
-    // Map pressure 0..1 to a natural pen range; ink gets thicker with pressure.
-    return 1.0 + (p||0.4)*5.5;
-  }
-  function applyStyle(t,c){
-    if(t==="hl"){ ctx.globalAlpha=.32; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=c; }
-    else if(t==="erase"){ ctx.globalAlpha=1; ctx.globalCompositeOperation="destination-out"; ctx.strokeStyle="rgba(0,0,0,1)"; }
-    else { ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over"; ctx.strokeStyle=c; }
-  }
-
-  // Draw a stroke as a smooth path using midpoint quadratic curves (Apple Notes-like).
-  function drawStroke(s){
-    const pts=s.pts;
-    if(pts.length<1) return;
-    ctx.lineCap="round"; ctx.lineJoin="round";
-    applyStyle(s.tool, s.color);
-
-    if(pts.length<3){
-      // dot or tiny mark
-      ctx.beginPath();
-      ctx.lineWidth=widthFromPressure(s.tool, pts[0].p);
-      ctx.moveTo(pts[0].x,pts[0].y);
-      ctx.lineTo(pts[pts.length-1].x+0.01, pts[pts.length-1].y+0.01);
-      ctx.stroke();
-    } else {
-      // Variable width: draw short curve segments, each with width from the
-      // running (smoothed) pressure, so the line tapers naturally.
-      for(let i=1;i<pts.length-1;i++){
-        const p0=pts[i-1], p1=pts[i], p2=pts[i+1];
-        const mid1={x:(p0.x+p1.x)/2, y:(p0.y+p1.y)/2};
-        const mid2={x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
-        ctx.beginPath();
-        ctx.lineWidth=widthFromPressure(s.tool, p1.p);
-        ctx.moveTo(mid1.x,mid1.y);
-        ctx.quadraticCurveTo(p1.x,p1.y, mid2.x,mid2.y);
-        ctx.stroke();
+  const APP_SCHEMES={
+    apple:    ["mobilenotes://", "https://www.icloud.com/notes"],
+    onenote:  ["onenote:", "https://www.onenote.com/notebooks"],
+    goodnotes:["goodnotes://", "https://www.goodnotes.com/"],
+    freeform: ["freeform://", "https://www.apple.com/freeform/"]
+  };
+  function launchApp(key){
+    const [scheme,fallback]=APP_SCHEMES[key]||[];
+    if(!scheme){ return; }
+    let returned=false;
+    const onHide=()=>{ returned=true; };
+    document.addEventListener("visibilitychange",onHide,{once:true});
+    // Try the app scheme; if nothing happens shortly, offer the web fallback.
+    const t=setTimeout(()=>{
+      document.removeEventListener("visibilitychange",onHide);
+      if(!returned && fallback){
+        if(confirm("Couldn't open the app. Open the web version instead?")){
+          window.open(fallback,"_blank","noopener");
+        }
       }
+    },1200);
+    try{ window.location.href=scheme; }catch(e){ clearTimeout(t); if(fallback) window.open(fallback,"_blank","noopener"); }
+    toast("Opening… write your page, then come back and tap Add written page");
+  }
+  document.querySelectorAll(".appcard").forEach(c=>{
+    c.addEventListener("click",()=>launchApp(c.dataset.app));
+  });
+
+  function showImported(){
+    if(importedImg && importedImgData){
+      $("#notesImg").src=importedImgData;
+      $("#notesPreview").style.display="block";
+      $("#notesLaunch").style.display="none";
+    }else{
+      $("#notesPreview").style.display="none";
+      $("#notesLaunch").style.display="block";
     }
-    ctx.globalAlpha=1; ctx.globalCompositeOperation="source-over";
   }
+  function redraw(){ showImported(); }  // compatibility shim used elsewhere
 
-  function redraw(){
-    const r=cvRect||cv.getBoundingClientRect();
-    ctx.clearRect(0,0,r.width,r.height);
-    if(importedImg){
-      // Fit imported image to canvas width, preserving aspect, top-aligned.
-      const iw=importedImg.naturalWidth||importedImg.width, ih=importedImg.naturalHeight||importedImg.height;
-      if(iw && ih){
-        const scale=Math.min(r.width/iw, 1);
-        const w=iw*scale, h=ih*scale;
-        ctx.globalAlpha=1;
-        ctx.drawImage(importedImg, 0, 0, w, h);
-      }
-    }
-    strokes.forEach(drawStroke);
-    if(cur) drawStroke(cur);
-    $("#padHint").style.display=(strokes.length||cur||importedImg)?"none":"block";
-  }
-
-  // rAF render loop: collect points during a stroke, paint once per frame for low latency.
-  let needsRender=false;
-  function requestRender(){ if(!needsRender){ needsRender=true; requestAnimationFrame(()=>{ needsRender=false; redraw(); }); } }
-
-  let cvRect=null;
-  function refreshRect(){ cvRect=cv.getBoundingClientRect(); }
-
-  function ptFromEvent(e){
-    const r=cvRect||cv.getBoundingClientRect();
-    let p;
-    if(e.pointerType==="pen"){ p = e.pressure>0 ? e.pressure : 0.4; }
-    else { p=0.45; }
-    // exponential smoothing of pressure for natural weight transitions
-    if(cur && cur.pts.length){ const prev=cur.pts[cur.pts.length-1].rp ?? p; p = prev*0.6 + p*0.4; }
-    return {x:e.clientX-r.left, y:e.clientY-r.top, p, rp:p};
-  }
-
-  function shouldDraw(e){
-    // Pencil-only mode: only pen events ever draw.
-    if(pencilOnly) return e.pointerType==="pen";
-    // Otherwise: pen always draws; finger draws only until a pencil has been seen,
-    // then fingers are treated as palm and ignored.
-    if(e.pointerType==="pen") return true;
-    if(e.pointerType==="touch") return !penEverSeen;
-    return true; // mouse/trackpad on desktop
-  }
-
-  cv.addEventListener("pointerdown",e=>{
-    if(e.pointerType==="pen") penEverSeen=true;
-    if(!shouldDraw(e)) return;            // palm / finger rejected
-    if(drawing) return;                   // ignore second simultaneous contact (palm)
-    refreshRect();                        // fresh geometry so ink lands under the tip
-    drawing=true; activePointerId=e.pointerId;
-    try{ cv.setPointerCapture(e.pointerId); }catch(_){}
-    cur={tool,color,pts:[ptFromEvent(e)]};
-    $("#padHint").style.display="none";
-    requestRender();
-    e.preventDefault();
-  },{passive:false});
-
-  cv.addEventListener("pointermove",e=>{
-    if(!drawing||!cur||e.pointerId!==activePointerId) return;
-    let evts = (e.getCoalescedEvents ? e.getCoalescedEvents() : null);
-    if(!evts || !evts.length) evts=[e];
-    for(const ev of evts){ cur.pts.push(ptFromEvent(ev)); }
-    requestRender();
-    e.preventDefault();
-  },{passive:false});
-
-  function endStroke(e){
-    if(!drawing||!cur) return;
-    if(e && e.pointerId!==undefined && e.pointerId!==activePointerId) return;
-    drawing=false; activePointerId=null;
-    if(cur.pts.length>=1) strokes.push(cur);
-    cur=null;
-    redraw();
-    if(typeof scheduleAutoSave==="function") scheduleAutoSave();
-  }
-  cv.addEventListener("pointerup",endStroke);
-  cv.addEventListener("pointercancel",endStroke);
-  window.addEventListener("resize",()=>{ sizeCanvas(); refreshRect(); });
-  window.addEventListener("scroll",refreshRect,{passive:true});
-  document.addEventListener("scroll",refreshRect,{passive:true});
-
-  // tool buttons
-  $$(".tool[data-tool]").forEach(b=>b.addEventListener("click",()=>{
-    $$(".tool[data-tool]").forEach(x=>x.classList.remove("active"));
-    b.classList.add("active"); tool=b.dataset.tool;
-  }));
-  $$(".swatch").forEach(s=>s.addEventListener("click",()=>{
-    $$(".swatch").forEach(x=>x.classList.remove("sel"));
-    s.classList.add("sel"); color=s.dataset.color;
-    // selecting a colour implies pen/highlight, not erase
-    if(tool==="erase"){tool="pen";$$(".tool[data-tool]").forEach(x=>x.classList.toggle("active",x.dataset.tool==="pen"));}
-  }));
-  $("#clearPad").addEventListener("click",()=>{
-    if(!strokes.length && !importedImg)return;
-    if(confirm("Clear all handwriting and imported images on this canvas?")){
-      strokes=[]; importedImg=null; importedImgData=null; redraw();
-      if(typeof scheduleAutoSave==="function")scheduleAutoSave();
-    }
-  });
-  $("#undoPad").addEventListener("click",()=>{
-    if(!strokes.length)return;
-    strokes.pop(); redraw(); if(typeof scheduleAutoSave==="function")scheduleAutoSave();
-  });
-  $("#pencilOnly").addEventListener("click",()=>{
-    pencilOnly=!pencilOnly;
-    $("#pencilOnly").classList.toggle("active",pencilOnly);
-    toast(pencilOnly?"Pencil only — fingers won't draw":"Finger drawing allowed");
-  });
-
-  // Open Apple Notes for native-quality handwriting (iOS URL scheme).
-  $("#openNotes").addEventListener("click",()=>{
-    toast("Opening Apple Notes — write there, then come back and tap Import image");
-    // mobilenotes:// launches the Notes app on iPad/iPhone.
-    setTimeout(()=>{ window.location.href="mobilenotes://"; },300);
-  });
-
-  // Import an image (e.g. a screenshot/export of Apple Notes handwriting) onto the canvas.
   $("#importImg").addEventListener("click",()=>$("#imgFile").click());
   $("#imgFile").addEventListener("change",e=>{
     const f=e.target.files && e.target.files[0];
@@ -532,17 +414,25 @@
       const img=new Image();
       img.onload=()=>{
         importedImg=img; importedImgData=rd.result;
-        redraw();
+        showImported();
         if(typeof scheduleAutoSave==="function")scheduleAutoSave();
-        toast("Image imported — included when you download");
+        toast("Written page attached — included when you download");
       };
       img.onerror=()=>toast("Couldn't load that image");
       img.src=rd.result;
     };
     rd.onerror=()=>toast("Couldn't read that file");
     rd.readAsDataURL(f);
-    e.target.value=""; // allow re-importing same file
+    e.target.value="";
   });
+  $("#clearImg").addEventListener("click",()=>{
+    if(!importedImg)return;
+    if(confirm("Remove the attached written page?")){
+      importedImg=null; importedImgData=null; showImported();
+      if(typeof scheduleAutoSave==="function")scheduleAutoSave();
+    }
+  });
+
 
   /* ---------------- Sheet (notes + summary) ---------------- */
   function openSheet(view){
@@ -928,8 +818,7 @@
     }
 
     // Handwriting present → single self-contained HTML file with everything in one place.
-    let png="";
-    try{ png=cv.toDataURL("image/png"); }catch(e){}
+    let png = importedImgData || "";
     const trHTML = tr ? transcript.map(l=>`<p class="tl"><span class="t">${fmt(l.t)}</span>${esc(l.text)}</p>`).join("") : "";
     const html=`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1062,13 +951,7 @@ ${png?`<h2>Handwriting &amp; sketches</h2><img src="${png}" alt="Handwriting">`:
   // Live transcript defaults ON; reflect it in the switch (gracefully off if unsupported).
   if(SR){ $("#liveSwitch").classList.add("on"); }
   else { liveOn=false; $("#liveSwitch").classList.remove("on"); }
-  sizeCanvas(); refreshRect();
-  setTimeout(()=>{ sizeCanvas(); refreshRect(); },200);   // after layout settles
-  setTimeout(()=>{ sizeCanvas(); refreshRect(); },800);   // after Safari toolbar/address bar settles
-  window.addEventListener("orientationchange",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },300));
-  // When the notes/summary sheet closes, the canvas may have resized — re-measure.
-  $("#closeSheet").addEventListener("click",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },80));
-  $("#sheetScrim").addEventListener("click",()=>setTimeout(()=>{ sizeCanvas(); refreshRect(); },80));
+  showImported();
   tickTimer();
   checkRecovery();
 })();
