@@ -202,7 +202,7 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v1.5</span></div>
+    <div class="brand"><span class="nib"></span>Session Scribe<span class="ver">v1.6</span></div>
     <div class="sess-meta">
       <input id="sessTitle" placeholder="Session title (e.g. Keynote: Net Zero Grid)">
       <button class="libbtn" id="openLib">Library</button>
@@ -365,29 +365,60 @@
   let importedImg=null;        // <img> element of attached written page
   let importedImgData=null;    // dataURL for export
 
+  // Each app: [scheme(s) to try, optional web fallback that actually works].
+  // Apple Notes / Freeform / GoodNotes have no useful web version, so no fallback —
+  // we just attempt the scheme and let iOS open the app (or quietly do nothing).
   const APP_SCHEMES={
-    apple:    ["mobilenotes://", "https://www.icloud.com/notes"],
-    onenote:  ["onenote:", "https://www.onenote.com/notebooks"],
-    goodnotes:["goodnotes://", "https://www.goodnotes.com/"],
-    freeform: ["freeform://", "https://www.apple.com/freeform/"]
+    apple:    { schemes:["mobilenotes://"], web:null, label:"Apple Notes" },
+    onenote:  { schemes:["onenote:"], web:"https://www.onenote.com/notebooks", label:"OneNote" },
+    goodnotes:{ schemes:["goodnotes://"], web:null, label:"GoodNotes" },
+    freeform: { schemes:["freeform://"], web:null, label:"Freeform" }
   };
+
+  // Trigger a custom scheme without navigating the page or crashing Safari:
+  // a hidden iframe is the safest way to fire app schemes from a web page.
+  function fireScheme(url){
+    try{
+      const ifr=document.createElement("iframe");
+      ifr.style.display="none";
+      ifr.src=url;
+      document.body.appendChild(ifr);
+      setTimeout(()=>{ try{ ifr.remove(); }catch(_){} },1500);
+    }catch(e){ /* ignore */ }
+  }
+
   function launchApp(key){
-    const [scheme,fallback]=APP_SCHEMES[key]||[];
-    if(!scheme){ return; }
+    const a=APP_SCHEMES[key];
+    if(!a) return;
     let returned=false;
     const onHide=()=>{ returned=true; };
     document.addEventListener("visibilitychange",onHide,{once:true});
-    // Try the app scheme; if nothing happens shortly, offer the web fallback.
-    const t=setTimeout(()=>{
-      document.removeEventListener("visibilitychange",onHide);
-      if(!returned && fallback){
-        if(confirm("Couldn't open the app. Open the web version instead?")){
-          window.open(fallback,"_blank","noopener");
+
+    // Attempt the app scheme(s). No error popup if it doesn't fire.
+    a.schemes.forEach(s=>fireScheme(s));
+
+    if(a.web){
+      // App has a real web version: if the app didn't take over, offer the web one.
+      setTimeout(()=>{
+        document.removeEventListener("visibilitychange",onHide);
+        if(!returned){
+          if(confirm(a.label+" app didn't open. Open the web version instead?")){
+            window.open(a.web,"_blank","noopener");
+          }
         }
-      }
-    },1200);
-    try{ window.location.href=scheme; }catch(e){ clearTimeout(t); if(fallback) window.open(fallback,"_blank","noopener"); }
-    toast("Opening… write your page, then come back and tap Add written page");
+      },1500);
+      toast("Opening "+a.label+"…");
+    }else{
+      // No web version (Apple Notes, Freeform, GoodNotes): attempt silently,
+      // and tell the user how to proceed regardless of whether it opened.
+      setTimeout(()=>{
+        document.removeEventListener("visibilitychange",onHide);
+        if(!returned){
+          toast("If "+a.label+" didn't open, launch it from your Home Screen — then add your page here.");
+        }
+      },1600);
+      toast("Opening "+a.label+"…");
+    }
   }
   document.querySelectorAll(".appcard").forEach(c=>{
     c.addEventListener("click",()=>launchApp(c.dataset.app));
